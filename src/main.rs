@@ -12,6 +12,12 @@ fn match_pattern(input_line: &str, pattern: &str) -> bool {
     else if pattern == r"\w" {
         return input_line.chars().any(|c| c.is_ascii_alphanumeric() || c == '_');
     }
+    else if pattern.starts_with('[') && pattern.ends_with(']') && pattern.len() > 2 {
+        // Extract characters between square brackets
+        let chars_to_match: Vec<char> = pattern[1..pattern.len()-1].chars().collect();
+        // Check if a character matches another in the group
+        return input_line.chars().any(|c| chars_to_match.contains(&c));
+    }
     else {
         panic!("Unhandled pattern: {}", pattern)
     }
