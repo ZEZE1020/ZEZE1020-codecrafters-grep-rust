@@ -13,10 +13,17 @@ fn match_pattern(input_line: &str, pattern: &str) -> bool {
         return input_line.chars().any(|c| c.is_ascii_alphanumeric() || c == '_');
     }
     else if pattern.starts_with('[') && pattern.ends_with(']') && pattern.len() > 2 {
-        // Extract characters between square brackets
-        let chars_to_match: Vec<char> = pattern[1..pattern.len()-1].chars().collect();
-        // Check if a character matches another in the group
-        return input_line.chars().any(|c| chars_to_match.contains(&c));
+        if pattern.starts_with("[^") && pattern.len() > 3 {
+            // Negative character group
+            let chars_to_not_match: Vec<char> = pattern[2..pattern.len()-1].chars().collect();
+            // Matches if any character is NOT in the group
+            return input_line.chars().any(|c| !chars_to_not_match.contains(&c));
+        } else {
+            
+            let chars_to_match: Vec<char> = pattern[1..pattern.len()-1].chars().collect();
+            
+            return input_line.chars().any(|c| chars_to_match.contains(&c));
+        }
     }
     else {
         panic!("Unhandled pattern: {}", pattern)
