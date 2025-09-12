@@ -58,34 +58,37 @@ fn matches_token(c: char, token: &PatternToken) -> bool {
 }
 
 fn match_pattern(input_line: &str, pattern: &str) -> bool {
-    let tokens = tokenize_pattern(pattern);
     let input_chars: Vec<char> = input_line.trim_end().chars().collect();
-    
-    if input_chars.len() < tokens.len() {
-        return false;
+
+    // Anchor detection
+    let (anchored, body) = if let Some(rest) = pattern.strip_prefix('^') {
+        (true, rest)
+    } else { (false, pattern) };
+
+    let tokens = tokenize_pattern(body);
+
+    // Edge case: pattern is just "^" (no tokens). That matches only empty input.
+    if anchored && tokens.is_empty() {
+        return input_chars.is_empty();
     }
-    
-    // Try matching at each position in the input
-    'outer: for start in 0..=input_chars.len() - tokens.len() {
+
+    if input_chars.len() < tokens.len() { return false; }
+
+    let start_range: Box<dyn Iterator<Item=usize>> = if anchored {
+        Box::new(std::iter::once(0))
+    } else {
+        Box::new(0..=input_chars.len() - tokens.len())
+    };
+
+    'outer: for start in start_range {
         let mut pos = start;
-        
-        // Try to match all tokens from this position
         for token in &tokens {
-            if pos >= input_chars.len() {
-                continue 'outer;
-            }
-            
-            if !matches_token(input_chars[pos], token) {
-                continue 'outer;
-            }
-            
+            if pos >= input_chars.len() { continue 'outer; }
+            if !matches_token(input_chars[pos], token) { continue 'outer; }
             pos += 1;
         }
-        
-        // If we got here, all tokens matched
-        return true;
+        return true; // all tokens matched
     }
-    
     false
 }
 
