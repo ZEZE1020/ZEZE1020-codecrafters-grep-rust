@@ -61,20 +61,33 @@ fn match_pattern(input_line: &str, pattern: &str) -> bool {
     let input_chars: Vec<char> = input_line.trim_end().chars().collect();
 
     // Anchor detection
-    let (anchored, body) = if let Some(rest) = pattern.strip_prefix('^') {
+    let (start_anchored, body) = if let Some(rest) = pattern.strip_prefix('^') {
         (true, rest)
     } else { (false, pattern) };
 
+    let (end_anchored, body) = if let Some(rest) = body.strip_suffix('$') {
+        (true, rest)
+    } else { (false, body) };
+
     let tokens = tokenize_pattern(body);
 
-    // Edge case: pattern is just "^" (no tokens). That matches only empty input.
-    if anchored && tokens.is_empty() {
+    // Edge cases for anchor-only patterns
+    if start_anchored && end_anchored && tokens.is_empty() {
+        // Pattern is "^$" - matches only empty input
+        return input_chars.is_empty();
+    }
+    if start_anchored && tokens.is_empty() {
+        // Pattern is "^" - matches only empty input
+        return input_chars.is_empty();
+    }
+    if end_anchored && tokens.is_empty() {
+        // Pattern is "$" - matches only empty input
         return input_chars.is_empty();
     }
 
     if input_chars.len() < tokens.len() { return false; }
 
-    let start_range: Box<dyn Iterator<Item=usize>> = if anchored {
+    let start_range: Box<dyn Iterator<Item=usize>> = if start_anchored {
         Box::new(std::iter::once(0))
     } else {
         Box::new(0..=input_chars.len() - tokens.len())
@@ -87,7 +100,13 @@ fn match_pattern(input_line: &str, pattern: &str) -> bool {
             if !matches_token(input_chars[pos], token) { continue 'outer; }
             pos += 1;
         }
-        return true; // all tokens matched
+        
+        // If end-anchored, ensure we matched exactly to the end
+        if end_anchored && pos != input_chars.len() {
+            continue 'outer;
+        }
+        
+        return true; // all tokens matched (and end condition satisfied if needed)
     }
     false
 }
