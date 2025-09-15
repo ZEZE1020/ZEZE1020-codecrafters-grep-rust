@@ -2,12 +2,13 @@ use std::env;
 use std::io;
 use std::process;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum PatternToken {
     Digit,          // \d
     Word,           // \w
     Char(char),     // literal character
     CharGroup(Vec<char>, bool),  // [...] or [^...]
+    Plus(Box<PatternToken>),     // token+
 }
 
 fn tokenize_pattern(pattern: &str) -> Vec<PatternToken> {
@@ -15,14 +16,16 @@ fn tokenize_pattern(pattern: &str) -> Vec<PatternToken> {
     let mut chars = pattern.chars().peekable();
     
     while let Some(c) = chars.next() {
-        match c {
+        let token = match c {
             '\\' => {
                 if let Some(special) = chars.next() {
                     match special {
-                        'd' => tokens.push(PatternToken::Digit),
-                        'w' => tokens.push(PatternToken::Word),
-                        _ => tokens.push(PatternToken::Char(special)),
+                        'd' => PatternToken::Digit,
+                        'w' => PatternToken::Word,
+                        _ => PatternToken::Char(special),
                     }
+                } else {
+                    continue;
                 }
             },
             '[' => {
@@ -37,9 +40,17 @@ fn tokenize_pattern(pattern: &str) -> Vec<PatternToken> {
                     }
                     group_chars.push(gc);
                 }
-                tokens.push(PatternToken::CharGroup(group_chars, is_negative));
+                PatternToken::CharGroup(group_chars, is_negative)
             },
-            _ => tokens.push(PatternToken::Char(c)),
+            _ => PatternToken::Char(c),
+        };
+        
+        // Check for quantifier after the token
+        if chars.peek() == Some(&'+') {
+            chars.next(); // consume '+'
+            tokens.push(PatternToken::Plus(Box::new(token)));
+        } else {
+            tokens.push(token);
         }
     }
     tokens
@@ -54,7 +65,48 @@ fn matches_token(c: char, token: &PatternToken) -> bool {
             let contains = chars.contains(&c);
             if *is_negative { !contains } else { contains }
         }
+        PatternToken::Plus(_) => false, // This should not be called directly
     }
+}
+
+fn match_tokens_at_position(input_chars: &[char], tokens: &[PatternToken], start_pos: usize) -> Option<usize> {
+    fn backtrack_match(input_chars: &[char], tokens: &[PatternToken], pos: usize, token_idx: usize) -> Option<usize> {
+        if token_idx >= tokens.len() {
+            return Some(pos);
+        }
+        
+        match &tokens[token_idx] {
+            PatternToken::Plus(inner_token) => {
+                // Must match at least once
+                if pos >= input_chars.len() || !matches_token(input_chars[pos], inner_token) {
+                    return None;
+                }
+                
+                // Try different numbers of matches (greedy approach with backtracking)
+                let mut max_matches = 1;
+                while pos + max_matches < input_chars.len() && 
+                      matches_token(input_chars[pos + max_matches], inner_token) {
+                    max_matches += 1;
+                }
+                
+                // Try from maximum matches down to minimum (1)
+                for num_matches in (1..=max_matches).rev() {
+                    if let Some(final_pos) = backtrack_match(input_chars, tokens, pos + num_matches, token_idx + 1) {
+                        return Some(final_pos);
+                    }
+                }
+                None
+            },
+            _ => {
+                if pos >= input_chars.len() || !matches_token(input_chars[pos], &tokens[token_idx]) {
+                    return None;
+                }
+                backtrack_match(input_chars, tokens, pos + 1, token_idx + 1)
+            }
+        }
+    }
+    
+    backtrack_match(input_chars, tokens, start_pos, 0)
 }
 
 fn match_pattern(input_line: &str, pattern: &str) -> bool {
@@ -73,41 +125,35 @@ fn match_pattern(input_line: &str, pattern: &str) -> bool {
 
     // Edge cases for anchor-only patterns
     if start_anchored && end_anchored && tokens.is_empty() {
-        // Pattern is "^$" - matches only empty input
         return input_chars.is_empty();
     }
     if start_anchored && tokens.is_empty() {
-        // Pattern is "^" - matches only empty input
         return input_chars.is_empty();
     }
     if end_anchored && tokens.is_empty() {
-        // Pattern is "$" - matches only empty input
         return input_chars.is_empty();
     }
 
-    if input_chars.len() < tokens.len() { return false; }
-
-    let start_range: Box<dyn Iterator<Item=usize>> = if start_anchored {
-        Box::new(std::iter::once(0))
+    // Try matching at different starting positions
+    let start_positions: Vec<usize> = if start_anchored {
+        vec![0]
     } else {
-        Box::new(0..=input_chars.len() - tokens.len())
+        (0..=input_chars.len()).collect()
     };
 
-    'outer: for start in start_range {
-        let mut pos = start;
-        for token in &tokens {
-            if pos >= input_chars.len() { continue 'outer; }
-            if !matches_token(input_chars[pos], token) { continue 'outer; }
-            pos += 1;
+    for start_pos in start_positions {
+        if let Some(end_pos) = match_tokens_at_position(&input_chars, &tokens, start_pos) {
+            // If end-anchored, ensure we matched exactly to the end
+            if end_anchored {
+                if end_pos == input_chars.len() {
+                    return true;
+                }
+            } else {
+                return true;
+            }
         }
-        
-        // If end-anchored, ensure we matched exactly to the end
-        if end_anchored && pos != input_chars.len() {
-            continue 'outer;
-        }
-        
-        return true; // all tokens matched (and end condition satisfied if needed)
     }
+    
     false
 }
 
