@@ -9,6 +9,7 @@ enum PatternToken {
     Char(char),     // literal character
     CharGroup(Vec<char>, bool),  // [...] or [^...]
     Plus(Box<PatternToken>),     // token+
+    Question(Box<PatternToken>), // token?
 }
 
 fn tokenize_pattern(pattern: &str) -> Vec<PatternToken> {
@@ -49,6 +50,9 @@ fn tokenize_pattern(pattern: &str) -> Vec<PatternToken> {
         if chars.peek() == Some(&'+') {
             chars.next(); // consume '+'
             tokens.push(PatternToken::Plus(Box::new(token)));
+        } else if chars.peek() == Some(&'?') {
+            chars.next(); // consume '?'
+            tokens.push(PatternToken::Question(Box::new(token)));
         } else {
             tokens.push(token);
         }
@@ -66,6 +70,7 @@ fn matches_token(c: char, token: &PatternToken) -> bool {
             if *is_negative { !contains } else { contains }
         }
         PatternToken::Plus(_) => false, // This should not be called directly
+        PatternToken::Question(_) => false, // This should not be called directly
     }
 }
 
@@ -91,6 +96,22 @@ fn match_tokens_at_position(input_chars: &[char], tokens: &[PatternToken], start
                 
                 // Try from maximum matches down to minimum (1)
                 for num_matches in (1..=max_matches).rev() {
+                    if let Some(final_pos) = backtrack_match(input_chars, tokens, pos + num_matches, token_idx + 1) {
+                        return Some(final_pos);
+                    }
+                }
+                None
+            },
+            PatternToken::Question(inner_token) => {
+                // Can match zero or one time
+                let max_matches = if pos < input_chars.len() && matches_token(input_chars[pos], inner_token) {
+                    1
+                } else {
+                    0
+                };
+                
+                // Try 1 match first (greedy), then 0 matches
+                for num_matches in (0..=max_matches).rev() {
                     if let Some(final_pos) = backtrack_match(input_chars, tokens, pos + num_matches, token_idx + 1) {
                         return Some(final_pos);
                     }
